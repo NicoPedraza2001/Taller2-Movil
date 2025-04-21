@@ -40,6 +40,16 @@ import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.TilesOverlay
 import java.util.*
 import kotlin.math.roundToInt
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.File
+import android.os.Environment
+import androidx.appcompat.app.AlertDialog
+import java.io.FileWriter
+import java.io.IOException
+import java.text.SimpleDateFormat
+import android.location.Location
+
 
 class OSMMapsActivity : AppCompatActivity(), SensorEventListener {
 
@@ -66,7 +76,6 @@ class OSMMapsActivity : AppCompatActivity(), SensorEventListener {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Configuración inicial de OSMdroid
         Configuration.getInstance().apply {
             load(applicationContext, getPreferences(Context.MODE_PRIVATE))
             userAgentValue = packageName
@@ -76,20 +85,11 @@ class OSMMapsActivity : AppCompatActivity(), SensorEventListener {
 
         setContentView(R.layout.activity_osmmaps)
 
-        // Inicialización de vistas
         initViews()
-
-        // Configuración del mapa
         setupMap()
-
-        // Configuración de controles
         setupSearchControls()
         setupMapClickListener()
-
-        // Verificación de permisos
         checkAndRequestPermissions()
-
-        // Configuración del sensor de luz
         setupLightSensor()
     }
 
@@ -148,7 +148,6 @@ class OSMMapsActivity : AppCompatActivity(), SensorEventListener {
 
             override fun longPressHelper(p: GeoPoint?): Boolean {
                 p?.let { point ->
-                    // Convertir las coordenadas de pantalla a coordenadas geográficas precisas
                     val projection = mapView.projection
                     val mapPoint = projection.fromPixels(
                         mapView.scrollX + mapView.width / 2,
@@ -158,7 +157,8 @@ class OSMMapsActivity : AppCompatActivity(), SensorEventListener {
                     if (startPoint == null) {
                         showToast("Primero establezca el punto inicial con el buscador")
                     } else {
-                        handleMapClick(mapPoint) // Usar las coordenadas precisas
+                        handleMapClick(mapPoint)
+                        saveLocationToJson(mapPoint)
                     }
                     return true
                 }
@@ -169,17 +169,14 @@ class OSMMapsActivity : AppCompatActivity(), SensorEventListener {
     }
 
     private fun handleMapClick(point: GeoPoint) {
-        // 1. Eliminar marcador anterior si existe
         mapView.overlays.removeAll { it is Marker && it.title?.startsWith("Punto final") == true }
 
-        // 2. Crear marcador en la posición exacta
         val marker = Marker(mapView).apply {
-            position = point // Posición exacta del click
+            position = point
             setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
             title = "Punto final"
             try {
                 icon = ContextCompat.getDrawable(this@OSMMapsActivity, R.drawable.ic_click_marker)?.apply {
-                    // Ajustar tamaño para mejor precisión visual
                     setBounds(0, 0, intrinsicWidth / 2, intrinsicHeight / 2)
                 }
             } catch (e: Exception) {
@@ -187,24 +184,88 @@ class OSMMapsActivity : AppCompatActivity(), SensorEventListener {
             }
         }
 
-        // 3. Añadir marcador al mapa
         mapView.overlays.add(marker)
-
-        // 4. Actualizar punto final y calcular distancia
         endPoint = point
         calculateDistance()
-
-        // 5. Centrar mapa en la nueva posición (opcional)
         mapController.animateTo(point)
-
-        // 6. Forzar redibujado inmediato
         mapView.invalidate()
 
-        // 7. Obtener dirección (en segundo plano)
         Handler(Looper.getMainLooper()).post {
             findAddressFromLocation(point)
         }
     }
+    // Variables necesarias
+    private var lastRecordedPoint: GeoPoint? = null
+
+    // Función para guardar ubicación
+    private fun saveLocationToJson(point: GeoPoint) {
+        val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+        val currentTime = sdf.format(Date())
+
+        val newEntry = JSONObject().apply {
+            put("latitud", point.latitude)
+            put("longitud", point.longitude)
+            put("fecha_hora", currentTime)
+        }
+
+        val dir = getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS)
+        val file = File(dir, "ubicaciones.json")
+
+        val jsonArray: JSONArray = if (file.exists()) {
+            try {
+                JSONArray(file.readText())
+            } catch (e: Exception) {
+                JSONArray()
+            }
+        } else {
+            JSONArray()
+        }
+
+        // Evitar duplicados consecutivos
+        val isRepeated = (jsonArray.length() > 0) && run {
+            val last = jsonArray.getJSONObject(jsonArray.length() - 1)
+            last.getDouble("latitud") == point.latitude &&
+                    last.getDouble("longitud") == point.longitude
+        }
+
+        // Calcular distancia desde el último punto registrado
+        var distance = 0f
+        lastRecordedPoint?.let {
+            val result = FloatArray(1)
+            Location.distanceBetween(
+                it.latitude, it.longitude,
+                point.latitude, point.longitude,
+                result
+            )
+            distance = result[0]
+        }
+
+        if (!isRepeated && (lastRecordedPoint == null || distance > 30)) {
+            jsonArray.put(newEntry)
+
+            try {
+                val writer = FileWriter(file)
+                writer.write(jsonArray.toString(4)) // formato indentado
+                writer.close()
+                Toast.makeText(this, "Ubicación guardada:\n${file.absolutePath}", Toast.LENGTH_SHORT).show()
+
+                // Mostrar contenido en un diálogo solo si la distancia es mayor a 30 metros
+                if (distance > 30 || lastRecordedPoint == null) {
+                    AlertDialog.Builder(this)
+                        .setTitle("Archivo JSON")
+                        .setMessage(jsonArray.toString(4))
+                        .setPositiveButton("Cerrar", null)
+                        .show()
+                }
+
+                lastRecordedPoint = point
+
+            } catch (e: IOException) {
+                Toast.makeText(this, "Error al guardar ubicación", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
 
     private fun searchAddress(addressString: String) {
         btnSearch.isEnabled = false
