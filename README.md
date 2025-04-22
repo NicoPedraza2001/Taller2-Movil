@@ -22,3 +22,4 @@ procesamiento de datos, desarrollo web y programación de motores gráficos para
 ![Git Dan.png](Imagenes/GitDan.png)
 
 ## LinkVideo
+https://youtu.be/GlBumDGD0fA

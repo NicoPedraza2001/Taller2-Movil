@@ -49,6 +49,7 @@ import java.io.FileWriter
 import java.io.IOException
 import java.text.SimpleDateFormat
 import android.location.Location
+import org.osmdroid.views.MapController
 
 
 class OSMMapsActivity : AppCompatActivity(), SensorEventListener {
@@ -76,6 +77,7 @@ class OSMMapsActivity : AppCompatActivity(), SensorEventListener {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // 1. Configurar preferencias del mapa (OSMDroid)
         Configuration.getInstance().apply {
             load(applicationContext, getPreferences(Context.MODE_PRIVATE))
             userAgentValue = packageName
@@ -83,15 +85,27 @@ class OSMMapsActivity : AppCompatActivity(), SensorEventListener {
             tileFileSystemThreads = 4
         }
 
+        // 2. Asignar el layout principal
         setContentView(R.layout.activity_osmmaps)
 
+        // 3. Inicializar vistas y sensores
         initViews()
+        setupLightSensor()
+
+        // 4. Configurar el mapa
         setupMap()
+        addInitialMarker()
+
+        // 5. Controles y eventos
         setupSearchControls()
         setupMapClickListener()
+
+        // 6. Pedir permisos necesarios
         checkAndRequestPermissions()
-        setupLightSensor()
     }
+
+
+
 
     private fun initViews() {
         mapView = findViewById(R.id.osmMap)
@@ -103,6 +117,23 @@ class OSMMapsActivity : AppCompatActivity(), SensorEventListener {
         geocoder = Geocoder(this, Locale.getDefault())
         sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
     }
+
+    private fun addInitialMarker() {
+        val javeriana = GeoPoint(4.6274, -74.0646)
+        val mapController = mapView.controller
+        mapController.setZoom(18.0)
+        mapController.setCenter(javeriana)
+
+        val marker = Marker(mapView).apply {
+            position = javeriana
+            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+            title = "Pontificia Universidad Javeriana"
+        }
+
+        mapView.overlays.add(marker)
+        mapView.invalidate()
+    }
+
 
     private fun setupMap() {
         mapView.setTileSource(TileSourceFactory.MAPNIK)
